@@ -1,0 +1,17 @@
+<!DOCTYPE struts PUBLIC
+        "-//Apache Software Foundation//DTD Struts Configuration 2.0//EN"
+        "http://struts.apache.org/dtds/struts-2.3.dtd">     		
+<struts>
+    <package name="p2" extends="struts-default">
+	 <action name="login"  class="p2.LoginAction">
+     <result name="s">loginsuccess.jsp</result>
+     <result name="f">loginfailure.jsp</result>
+     <result name="input">/login.jsp</result>
+    </action>
+    <action name="register"  class="p2.RegisterAction">
+     <result name="s">registersuccess.jsp</result>
+     <result name="f">registerfailure.jsp</result>
+     <result name="input">/register.jsp</result>
+    </action>
+	 </package>
+</struts>
