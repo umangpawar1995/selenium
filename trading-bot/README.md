@@ -18,12 +18,13 @@ trading_bot/
   portfolio.py        the fake-money ledger (cash, positions, trade log)
   broker.py           opens/closes positions against real quotes + costs
   strategies/         SMA crossover, RSI reversion, Donchian breakout
+  strategies/registry.py  the one place that lists every strategy - add yours here
   backtest/           runs a strategy over real history, honest pass/fail bar
   sizing/kelly.py      fractional-Kelly position sizing from real trade history
   bot/runner.py        the live paper-trading loop + reset-and-learn on blowup
-  dashboard/           local Flask dashboard (equity curve, positions, trades)
-run_backtest.py        CLI: fetch real history, backtest all 3 strategies
-run_bot.py              CLI: run the live paper loop + dashboard
+  dashboard/           local Flask dashboard + controller (pick symbol/strategy in the browser)
+run_backtest.py        CLI: fetch real history, backtest every registered strategy
+run_bot.py              launches the dashboard - no per-run flags required
 tests/                  unit tests for every piece above
 ```
 
@@ -33,28 +34,49 @@ tests/                  unit tests for every piece above
 pip install -r requirements.txt
 ```
 
-## Backtest first
+## Everything from the browser (recommended)
+
+```
+python run_bot.py
+```
+
+Then open http://127.0.0.1:5000. From there you can:
+- Pick an **exchange** (NSE, BSE, or Crypto/Binance) and type a **symbol**
+  (e.g. `RELIANCE`, `TCS`, `BTCUSDT` - the `.NS`/`.BO` suffix is added for you)
+- Click **Run Backtest** to see every registered strategy's real historical
+  performance for that symbol, and whether it honestly passes
+- Pick a **strategy** from the dropdown and click **Start Paper Trading** -
+  the equity curve, positions, and trade log update live
+- Click **Stop** to switch to a different symbol/strategy at any time
+
+## Or from the command line
 
 ```
 python run_backtest.py --symbol BTCUSDT --source binance --interval 1h --days 60
-python run_backtest.py --symbol AAPL --source yahoo --interval 1d --days 365
+python run_backtest.py --symbol RELIANCE.NS --source yahoo --interval 1d --days 365
+python run_bot.py --symbol BTCUSDT --source binance --strategy sma_crossover --perpetual
 ```
 
-Prints each strategy's real historical performance net of fees and slippage,
-and whether it clears the honest pass bar (`num_trades >= 10`, positive
-return, `Sharpe > 0`, `max_drawdown > -50%`, `profit_factor > 1`). A
-strategy that doesn't clear this is reported as failing - it does not get
-special-cased to look better.
+`run_backtest.py` prints each strategy's real historical performance net of
+fees and slippage, and whether it clears the honest pass bar
+(`num_trades >= 10`, positive return, `Sharpe > 0`, `max_drawdown > -50%`,
+`profit_factor > 1`). A strategy that doesn't clear this is reported as
+failing - it does not get special-cased to look better.
 
-## Run the paper bot
+## Adding a new strategy
 
-```
-python run_bot.py --symbol BTCUSDT --source binance --strategy sma --perpetual
-```
+1. Create a file in `trading_bot/strategies/`, e.g. `macd.py`, with a class
+   that inherits from `Strategy` (see `strategies/base.py`) and implements
+   `signal(ohlcv)` - it takes an OHLCV DataFrame and returns a value per bar:
+   `1` (long), `-1` (short), or `0` (flat).
+2. Add one line to `trading_bot/strategies/registry.py`'s `STRATEGIES` dict,
+   e.g. `"macd": lambda: Macd()`.
 
-Then open http://127.0.0.1:5000 for the live dashboard (equity curve, open
-positions, trade log, and the "lessons" banked each time the account resets
-after a blowup).
+That's it - it now shows up in the dashboard's strategy dropdown and in
+every `run_backtest.py` run automatically. Confirm any formula you use
+against an official/primary source first (the existing strategies cite
+theirs in their docstrings) - an invented formula is exactly the kind of
+thing this project's honesty rule exists to prevent.
 
 ## What every number is actually based on
 
@@ -89,7 +111,7 @@ Sources checked 2026-07-06 (see docstrings in `config.py`,
 This bot was built and tested inside a sandboxed cloud container whose
 network policy blocks outbound calls to arbitrary hosts (Binance, Yahoo
 Finance, etc. all returned `403` on every attempt here). That means the
-**37 unit tests all run and pass in this sandbox using scripted/synthetic
+**45 unit tests all run and pass in this sandbox using scripted/synthetic
 fixture data** (see `tests/fakes.py`, clearly never used by the real bot),
 but the actual live network calls in `BinanceFeed`, `YahooFeed`,
 `run_backtest.py`, and `run_bot.py` could not be exercised end-to-end here.

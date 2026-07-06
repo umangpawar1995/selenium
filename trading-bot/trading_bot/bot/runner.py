@@ -119,12 +119,17 @@ class PaperTradingRunner:
 
         self.portfolio.record_equity(now, mark_prices)
 
-    def run_forever(self, interval_seconds: float = 60.0) -> None:
+    def run_forever(self, interval_seconds: float = 60.0, stop_event=None) -> None:
         """Blocking loop for a real local run - not meant to run inside a
-        sandboxed CI container. Ctrl+C to stop."""
-        while True:
+        sandboxed CI container. Ctrl+C to stop, or pass a threading.Event
+        and set() it (used by the dashboard to switch symbols/strategies
+        cleanly instead of leaking a background thread)."""
+        while stop_event is None or not stop_event.is_set():
             self.tick()
-            time.sleep(interval_seconds)
+            if stop_event is not None:
+                stop_event.wait(interval_seconds)
+            else:
+                time.sleep(interval_seconds)
 
 
 def _bar_span(interval: str) -> timedelta:

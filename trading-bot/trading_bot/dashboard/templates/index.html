@@ -17,11 +17,65 @@
   th { color: #8b93a7; font-weight: 500; }
   section { margin-top: 28px; }
   canvas { background: #161a24; border: 1px solid #262c3a; border-radius: 10px; }
+  .panel { background: #161a24; border: 1px solid #262c3a; border-radius: 10px; padding: 18px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 12px; color: #8b93a7; }
+  select, input, button { background: #0f1117; color: #e6e6e6; border: 1px solid #262c3a; border-radius: 6px; padding: 8px 10px; font-size: 13px; }
+  button { cursor: pointer; background: #2563eb; border-color: #2563eb; font-weight: 600; }
+  button.secondary { background: #0f1117; border-color: #f87171; color: #f87171; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; background: #1f2937; }
+  .error { color: #f87171; font-size: 13px; margin-top: 8px; }
 </style>
 </head>
 <body>
   <h1>paper trading bot</h1>
-  <div class="subtle">real prices, fake money - refreshes every 3s</div>
+  <div class="subtle">real prices, fake money</div>
+
+  <section class="panel">
+    <div class="row">
+      <div class="field">
+        <label>exchange</label>
+        <select id="exchange">
+          <option value="nse">NSE (India)</option>
+          <option value="bse">BSE (India)</option>
+          <option value="crypto">Crypto (Binance)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label id="symbolLabel">symbol (e.g. RELIANCE)</label>
+        <input id="symbol" placeholder="RELIANCE" value="RELIANCE">
+      </div>
+      <div class="field">
+        <label>strategy</label>
+        <select id="strategy">
+          {% for s in strategies %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label>interval</label>
+        <select id="interval">
+          <option value="1d">1 day</option>
+          <option value="1h">1 hour</option>
+          <option value="4h">4 hour</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>backtest days</label>
+        <input id="days" type="number" value="365" style="width:80px">
+      </div>
+      <button id="backtestBtn">Run Backtest</button>
+      <button id="startBtn">Start Paper Trading</button>
+      <button id="stopBtn" class="secondary">Stop</button>
+    </div>
+    <div id="controlError" class="error"></div>
+    <div id="backtestResults" style="margin-top:14px"></div>
+  </section>
+
+  <section>
+    <span id="runningBadge" class="badge">no bot running</span>
+  </section>
 
   <div class="cards">
     <div class="card"><div class="label">equity</div><div class="value" id="equity">-</div></div>
@@ -60,6 +114,79 @@
 function money(n) { return "$" + Number(n).toFixed(2); }
 function pct(n) { return (Number(n) * 100).toFixed(1) + "%"; }
 
+const exchangeEl = document.getElementById("exchange");
+const symbolEl = document.getElementById("symbol");
+const symbolLabelEl = document.getElementById("symbolLabel");
+const intervalEl = document.getElementById("interval");
+
+const EXCHANGE_INFO = {
+  nse: { source: "yahoo", suffix: ".NS", placeholder: "RELIANCE", label: "symbol (e.g. RELIANCE)" },
+  bse: { source: "yahoo", suffix: ".BO", placeholder: "RELIANCE", label: "symbol (e.g. RELIANCE)" },
+  crypto: { source: "binance", suffix: "", placeholder: "BTCUSDT", label: "symbol (e.g. BTCUSDT)" },
+};
+
+exchangeEl.addEventListener("change", () => {
+  const info = EXCHANGE_INFO[exchangeEl.value];
+  symbolEl.placeholder = info.placeholder;
+  symbolLabelEl.textContent = info.label;
+});
+
+function fullSymbol() {
+  const info = EXCHANGE_INFO[exchangeEl.value];
+  const raw = symbolEl.value.trim().toUpperCase();
+  if (!info.suffix || raw.includes(".")) return raw;
+  return raw + info.suffix;
+}
+
+function setError(msg) {
+  document.getElementById("controlError").textContent = msg || "";
+}
+
+document.getElementById("backtestBtn").addEventListener("click", async () => {
+  setError("");
+  const resultsDiv = document.getElementById("backtestResults");
+  resultsDiv.innerHTML = "running backtest against real history...";
+  const info = EXCHANGE_INFO[exchangeEl.value];
+  const res = await fetch("/api/backtest", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      symbol: fullSymbol(), source: info.source,
+      interval: intervalEl.value, days: Number(document.getElementById("days").value),
+    }),
+  });
+  const data = await res.json();
+  if (!data.ok) { setError(data.error); resultsDiv.innerHTML = ""; return; }
+  resultsDiv.innerHTML = `<table><thead><tr>
+      <th>strategy</th><th>verdict</th><th>trades</th><th>return</th><th>sharpe</th><th>max dd</th><th>win rate</th><th>profit factor</th>
+    </tr></thead><tbody>${data.results.map(r => `<tr>
+      <td>${r.strategy}</td>
+      <td class="${r.passed ? 'pos' : 'neg'}">${r.passed ? 'PASS' : 'fail'}</td>
+      <td>${r.trades}</td><td>${pct(r.total_return)}</td><td>${r.sharpe.toFixed(2)}</td>
+      <td>${pct(r.max_drawdown)}</td><td>${pct(r.win_rate)}</td><td>${r.profit_factor.toFixed(2)}</td>
+    </tr>`).join("")}</tbody></table>`;
+});
+
+document.getElementById("startBtn").addEventListener("click", async () => {
+  setError("");
+  const info = EXCHANGE_INFO[exchangeEl.value];
+  const res = await fetch("/api/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      symbol: fullSymbol(), source: info.source,
+      strategy: document.getElementById("strategy").value,
+      interval: intervalEl.value,
+    }),
+  });
+  const data = await res.json();
+  if (!data.ok) setError(data.error);
+});
+
+document.getElementById("stopBtn").addEventListener("click", async () => {
+  await fetch("/api/stop", { method: "POST" });
+});
+
 function drawChart(history) {
   const canvas = document.getElementById("chart");
   const ctx = canvas.getContext("2d");
@@ -84,6 +211,20 @@ function drawChart(history) {
 async function refresh() {
   const res = await fetch("/api/state");
   const s = await res.json();
+
+  const badge = document.getElementById("runningBadge");
+  if (!s.running) {
+    badge.textContent = "no bot running - pick a stock and strategy above, then Start";
+    document.getElementById("equity").textContent = "-";
+    document.getElementById("cash").textContent = "-";
+    document.getElementById("starting").textContent = "-";
+    document.getElementById("busts").textContent = "-";
+    document.querySelector("#positions tbody").innerHTML = "";
+    document.querySelector("#trades tbody").innerHTML = "";
+    document.querySelector("#lessons tbody").innerHTML = "";
+    return;
+  }
+  badge.textContent = `running: ${s.current.symbol} (${s.current.source}) - ${s.current.strategy}`;
 
   document.getElementById("equity").textContent = money(s.equity);
   document.getElementById("equity").className = "value " + (s.equity >= s.starting_balance ? "pos" : "neg");

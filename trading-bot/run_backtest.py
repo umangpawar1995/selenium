@@ -11,13 +11,11 @@ Usage:
 import argparse
 from datetime import datetime, timedelta, timezone
 
-from trading_bot.backtest.backtester import passes_honest_bar, run_backtest
+from trading_bot.backtest.backtester import passes_honest_bar
+from trading_bot.backtest.suite import run_all_strategies
 from trading_bot.config import DEFAULT_CONFIG
 from trading_bot.data_feed.binance_feed import BinanceFeed
 from trading_bot.data_feed.yahoo_feed import YahooFeed
-from trading_bot.strategies.breakout import DonchianBreakout
-from trading_bot.strategies.rsi_reversion import RsiReversion
-from trading_bot.strategies.sma_crossover import SmaCrossover
 
 PERIODS_PER_YEAR = {
     "1m": 365 * 24 * 60, "5m": 365 * 24 * 12, "15m": 365 * 24 * 4,
@@ -41,14 +39,12 @@ def main() -> None:
     print(f"got {len(ohlcv)} real bars, {ohlcv.index.min()} to {ohlcv.index.max()}")
 
     periods_per_year = PERIODS_PER_YEAR.get(args.interval, 365)
-    strategies = [SmaCrossover(), RsiReversion(), DonchianBreakout()]
 
-    for strategy in strategies:
-        result = run_backtest(ohlcv, strategy, DEFAULT_CONFIG, periods_per_year)
+    for result in run_all_strategies(ohlcv, DEFAULT_CONFIG, periods_per_year):
         m = result.metrics
         verdict = "PASS" if passes_honest_bar(result) else "fail"
         print(
-            f"\n[{verdict}] {strategy.name}\n"
+            f"\n[{verdict}] {result.strategy_name}\n"
             f"  trades={m.num_trades} total_return={m.total_return:.2%} "
             f"sharpe={m.sharpe:.2f} max_drawdown={m.max_drawdown:.2%} "
             f"win_rate={m.win_rate:.2%} profit_factor={m.profit_factor:.2f}"
